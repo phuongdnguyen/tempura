@@ -21,7 +21,7 @@ func main() {
 	}
 	defer c.Close()
 
-	numWorkflows := 10
+	numWorkflows := 100
 	var wg sync.WaitGroup
 	wg.Add(numWorkflows)
 

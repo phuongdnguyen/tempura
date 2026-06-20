@@ -38,18 +38,20 @@ func NewMappings(dataPath string) *Mappings {
 	}
 
 	go func() {
-		select {
-		case <-ticker.C:
-			//m.lock.Lock()
-			byte, err := json.Marshal(m.cache)
-			if err != nil {
-				log.Fatalf("failed to marshal cache, err: %v", err)
+		for {
+			select {
+			case <-ticker.C:
+				//m.lock.Lock()
+				byte, err := json.Marshal(m.cache)
+				if err != nil {
+					log.Fatalf("failed to marshal cache, err: %v", err)
+				}
+				if err := os.WriteFile(dataPath, byte, os.ModePerm); err != nil {
+					log.Fatalf("failed to checkpoint cache, err: %v", err)
+				}
+				//m.lock.Unlock()
+				log.Printf("cache checkpointed at: %s", time.Now().UTC().Format(time.RFC3339))
 			}
-			if err := os.WriteFile(dataPath, byte, os.ModePerm); err != nil {
-				log.Fatalf("failed to checkpoint cache, err: %v", err)
-			}
-			//m.lock.Unlock()
-			log.Printf("cache checkpointed at: %s", time.Now().UTC().Format(time.RFC3339))
 		}
 	}()
 	return m

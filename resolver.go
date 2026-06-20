@@ -108,3 +108,16 @@ func (ch *ConsistentHash) RemoveSlot(slot string) {
 	}
 	ch.ring = newRing
 }
+
+// GetAllSlots returns a deduplicated list of all slots (physical namespaces) in the ring
+func (ch *ConsistentHash) GetAllSlots() []string {
+	uniqueSlots := make(map[string]bool)
+	var slots []string
+	for _, slot := range ch.vnodeToSlot {
+		if !uniqueSlots[slot] {
+			uniqueSlots[slot] = true
+			slots = append(slots, slot)
+		}
+	}
+	return slots
+}
