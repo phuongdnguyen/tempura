@@ -3,21 +3,46 @@ version: '3.8'
 services:
   temporal-cluster-1:
     image: temporalio/temporal:latest
-    command: server start-dev --ip 0.0.0.0
+    command: server start-dev --ip 0.0.0.0 --metrics-port 8000
     ports:
       - "7233:7233" # gRPC port
       - "8233:8233" # Web UI port
+      - "8000:8000" # Metrics port
     networks:
       - temporal-sandbox-network
 
   temporal-cluster-2:
     image: temporalio/temporal:latest
-    command: server start-dev --ip 0.0.0.0
+    command: server start-dev --ip 0.0.0.0 --metrics-port 8001
     ports:
       - "7234:7233" # gRPC port
       - "8234:8233" # Web UI port
+      - "8001:8001" # Metrics port
     networks:
       - temporal-sandbox-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - temporal-sandbox-network
+    depends_on:
+      - temporal-cluster-1
+      - temporal-cluster-2
+
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    networks:
+      - temporal-sandbox-network
+    depends_on:
+      - prometheus
 
 networks:
   temporal-sandbox-network:
