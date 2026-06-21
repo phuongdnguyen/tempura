@@ -3,6 +3,7 @@ module tedx
 go 1.26
 
 require (
+	github.com/puzpuzpuz/xsync/v4 v4.5.0
 	github.com/spaolacci/murmur3 v1.1.0
 	github.com/stretchr/testify v1.11.1
 	go.temporal.io/api v1.62.14

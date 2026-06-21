@@ -6,11 +6,12 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
-// TODO: thread-safe cache
 type Mappings struct {
-	cache          map[string]string
+	cachev2        *xsync.Map[string, string]
 	dataPath       string
 	cacheHitCount  int
 	cacheMissCount int
@@ -22,8 +23,8 @@ func NewMappings(dataPath string) *Mappings {
 		dataPath = "./data/mappings.json"
 	}
 	m := &Mappings{
-		cache: make(map[string]string),
-		lock:  sync.RWMutex{},
+		cachev2: xsync.NewMap[string, string](),
+		lock:    sync.RWMutex{},
 	}
 	ticker := time.NewTicker(10 * time.Second)
 	_, err := os.Stat(dataPath)
@@ -33,9 +34,15 @@ func NewMappings(dataPath string) *Mappings {
 		if err != nil {
 			log.Fatalf("failed to read mapping file %v, err: %v", dataPath, err)
 		}
-		if err := json.Unmarshal(file, &m.cache); err != nil {
+		data := map[string]string{}
+		if err := json.Unmarshal(file, &data); err != nil {
 			log.Fatalf("failed to unmarshal mapping file %v, err: %v", dataPath, err)
 		}
+		log.Println("mapping loading")
+		for k, v := range data {
+			m.cachev2.Store(k, v)
+		}
+		log.Println("mapping loaded")
 	}
 
 	go func() {
@@ -43,7 +50,11 @@ func NewMappings(dataPath string) *Mappings {
 			select {
 			case <-ticker.C:
 				//m.lock.Lock()
-				byte, err := json.Marshal(m.cache)
+				data := map[string]string{}
+				for k, v := range m.cachev2.All() {
+					data[k] = v
+				}
+				byte, err := json.Marshal(data)
 				if err != nil {
 					log.Fatalf("failed to marshal cache, err: %v", err)
 				}
@@ -60,7 +71,7 @@ func NewMappings(dataPath string) *Mappings {
 
 func (m *Mappings) Get(key string) string {
 	m.lock.RLock()
-	if val, ok := m.cache[key]; ok {
+	if val, ok := m.cachev2.Load(key); ok {
 		m.cacheHitCount++
 		return val
 	}
@@ -78,16 +89,13 @@ func (m *Mappings) MissCount() int {
 }
 
 func (m *Mappings) Size() int {
-	return len(m.cache)
+	return m.cachev2.Size()
 }
 
 func (m *Mappings) Put(key, value string) {
-	//m.lock.Lock()
-	// TODO: make cache thread safe
-	(*m).cache[key] = value
-	//m.lock.Unlock()
+	m.cachev2.Store(key, value)
 }
 
 func (m *Mappings) Delete(key string) {
-	delete(m.cache, key)
+	m.cachev2.Delete(key)
 }
