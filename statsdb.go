@@ -30,7 +30,6 @@ func (db *StatsDB) Reset() {
 }
 
 func (db *StatsDB) Inc(namespace string) {
-	db.namespaces[namespace]++
 	totalWorkflowAllocated.WithLabelValues(namespace).Inc()
 }
 

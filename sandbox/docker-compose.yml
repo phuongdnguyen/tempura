@@ -44,6 +44,13 @@ services:
     depends_on:
       - prometheus
 
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    networks:
+      - temporal-sandbox-network
+
 networks:
   temporal-sandbox-network:
     driver: bridge

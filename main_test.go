@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,10 +20,12 @@ func Test_All(t *testing.T) {
 	}
 
 	// create cache
-	mappings := NewMappings("./data/mappings.json")
+	mappings := NewMappings("localhost:6379")
+	mappings.Clear()
 	resolver := NewResolver(mappings)
 
 	registry := NewVirtualNamespaceRegistry("./data/namespace-registry.json")
+	registry.Register(vNamespace)
 
 	payloads := makePayloads(1000, vNamespaceName)
 
@@ -118,10 +119,5 @@ func Test_All(t *testing.T) {
 	for _, tt := range tests {
 		tt.test()
 		tt.assertion(t)
-		// collect stats
-		fmt.Printf("%s allocation stats:\n", tt.name)
-		for namespace, allocated := range resolver.Stats.Dump() {
-			fmt.Printf("namespace: %s, allocated: %d\n", namespace, allocated)
-		}
 	}
 }

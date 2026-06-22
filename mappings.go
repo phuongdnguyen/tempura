@@ -1,78 +1,62 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"log"
-	"os"
-	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
+	"github.com/redis/go-redis/v9"
 )
 
 type Mappings struct {
-	cachev2        *xsync.Map[string, string]
-	dataPath       string
+	client         *redis.Client
 	cacheHitCount  int
 	cacheMissCount int
+	ctx            context.Context
 }
 
-func NewMappings(dataPath string) *Mappings {
-	if dataPath == "" {
-		dataPath = "./data/mappings.json"
+func NewMappings(redisAddr string) *Mappings {
+	if redisAddr == "" || redisAddr == "./data/mappings.json" {
+		redisAddr = "localhost:6379"
 	}
-	m := &Mappings{
-		cachev2: xsync.NewMap[string, string](),
-	}
-	ticker := time.NewTicker(10 * time.Second)
-	_, err := os.Stat(dataPath)
-	if err == nil {
-		// read if exist
-		file, err := os.ReadFile(dataPath)
-		if err != nil {
-			log.Fatalf("failed to read mapping file %v, err: %v", dataPath, err)
-		}
-		data := map[string]string{}
-		if err := json.Unmarshal(file, &data); err != nil {
-			log.Fatalf("failed to unmarshal mapping file %v, err: %v", dataPath, err)
-		}
-		log.Println("mappings loading")
-		for k, v := range data {
-			m.cachev2.Store(k, v)
-		}
-		log.Println("mappings loaded")
+	client := redis.NewClient(&redis.Options{
+		Addr: redisAddr,
+	})
+
+	ctx := context.Background()
+	_, err := client.Ping(ctx).Result()
+	if err != nil {
+		log.Printf("Warning: failed to connect to redis at %s: %v", redisAddr, err)
+	} else {
+		log.Printf("Connected to redis at %s", redisAddr)
 	}
 
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				//m.lock.Lock()
-				data := map[string]string{}
-				for k, v := range m.cachev2.All() {
-					data[k] = v
-				}
-				byte, err := json.Marshal(data)
-				if err != nil {
-					log.Fatalf("failed to marshal cache, err: %v", err)
-				}
-				if err := os.WriteFile(dataPath, byte, os.ModePerm); err != nil {
-					log.Fatalf("failed to checkpoint cache, err: %v", err)
-				}
-				//m.lock.Unlock()
-				log.Printf("cache checkpointed at: %s", time.Now().UTC().Format(time.RFC3339))
-			}
-		}
-	}()
-	return m
+	return &Mappings{
+		client: client,
+		ctx:    ctx,
+	}
 }
 
 func (m *Mappings) Get(key string) string {
-	if val, ok := m.cachev2.Load(key); ok {
-		m.cacheHitCount++
-		return val
+	val, err := m.client.Get(m.ctx, key).Result()
+	if err == redis.Nil || err != nil {
+		m.cacheMissCount++
+		return ""
 	}
-	m.cacheMissCount++
-	return ""
+	m.cacheHitCount++
+	return val
+}
+
+func (m *Mappings) Put(key, value string) {
+	m.client.Set(m.ctx, key, value, 0)
+}
+
+func (m *Mappings) Delete(key string) {
+	m.client.Del(m.ctx, key)
+}
+
+func (m *Mappings) Size() int {
+	size, _ := m.client.DBSize(m.ctx).Result()
+	return int(size)
 }
 
 func (m *Mappings) HitCount() int {
@@ -83,14 +67,6 @@ func (m *Mappings) MissCount() int {
 	return m.cacheMissCount
 }
 
-func (m *Mappings) Size() int {
-	return m.cachev2.Size()
-}
-
-func (m *Mappings) Put(key, value string) {
-	m.cachev2.Store(key, value)
-}
-
-func (m *Mappings) Delete(key string) {
-	m.cachev2.Delete(key)
+func (m *Mappings) Clear() {
+	m.client.FlushDB(m.ctx)
 }

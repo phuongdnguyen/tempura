@@ -56,7 +56,7 @@ func NewStickyProxy(listenAddr string, registry *VirtualNamespaceRegistry) (*Sti
 	}
 	proxy.Transport = transport
 
-	mappings := NewMappings("./data/mappings.json")
+	mappings := NewMappings("localhost:6379")
 	resolver := NewResolver(mappings)
 
 	connPark := NewConnPark(resolver, registry, transport)
