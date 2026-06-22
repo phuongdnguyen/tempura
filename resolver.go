@@ -30,7 +30,7 @@ func (r *Resolver) Resolve(payload *Payload, registry *VirtualNamespaceRegistry)
 	if virtualNamespace == nil {
 		return "", false // Should ideally not happen if properly registered
 	}
-	physNs := virtualNamespace.Hasher.GetSlot(key)
+	physNs := virtualNamespace.Ring.GetSlot(key)
 	r.Stats.Inc(physNs)
 	r.Cache.Put(key, physNs)
 	return physNs, false

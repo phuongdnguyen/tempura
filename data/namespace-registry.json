@@ -1,1 +1,1 @@
-{"default":["pricing::localhost:7233","payment::localhost:7233"]}
+{"default":{"payment::localhost:7233":"active","pricing::localhost:7233":"cordoned"}}

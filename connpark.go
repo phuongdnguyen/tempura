@@ -66,7 +66,7 @@ func (cp *ConnPark) ExecutePoll(originalReq *http.Request, bodyBytes []byte) (*h
 		return nil, fmt.Errorf("virtual namespace not found: %s", virtualNamespaceStr)
 	}
 
-	slots := virtualNs.Hasher.GetAllSlots()
+	slots := virtualNs.GetAllNamespaces()
 	if len(slots) == 0 {
 		return nil, fmt.Errorf("no physical namespaces found for virtual namespace: %s", virtualNamespaceStr)
 	}
@@ -228,7 +228,7 @@ func (cp *ConnPark) ExecutePollActivity(originalReq *http.Request, bodyBytes []b
 		return nil, fmt.Errorf("virtual namespace not found: %s", virtualNamespaceStr)
 	}
 
-	slots := virtualNs.Hasher.GetAllSlots()
+	slots := virtualNs.GetAllNamespaces()
 	if len(slots) == 0 {
 		return nil, fmt.Errorf("no physical namespaces found for virtual namespace: %s", virtualNamespaceStr)
 	}

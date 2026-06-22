@@ -54,20 +54,36 @@ func NewVirtualNamespaceRegistry(dataPath string) *VirtualNamespaceRegistry {
 	v := &VirtualNamespaceRegistry{
 		namespaces: make(map[string]*VirtualNamespace),
 	}
-	
+
 	// Read if exist
 	file, err := os.ReadFile(dataPath)
 	if err == nil {
-		var schema map[string][]string
-		if err := json.Unmarshal(file, &schema); err != nil {
-			log.Fatalf("failed to unmarshal registry file %v, err: %v", dataPath, err)
-		}
-		for virtualName, slots := range schema {
-			vNs := NewVirtualNamespace(virtualName)
-			for _, slot := range slots {
-				vNs.Add(&Namespace{name: slot})
+		var newSchema map[string]map[string]NamespaceStatus
+		err = json.Unmarshal(file, &newSchema)
+		if err == nil {
+			for virtualName, slotsMap := range newSchema {
+				vNs := NewVirtualNamespace(virtualName)
+				for slot, status := range slotsMap {
+					if status == NamespaceActive {
+						vNs.Add(&Namespace{name: slot})
+					} else {
+						vNs.Namespaces[slot] = status
+					}
+				}
+				v.namespaces[virtualName] = vNs
 			}
-			v.namespaces[virtualName] = vNs
+		} else {
+			var schema map[string][]string
+			if err := json.Unmarshal(file, &schema); err != nil {
+				log.Fatalf("failed to unmarshal registry file %v, err: %v", dataPath, err)
+			}
+			for virtualName, slots := range schema {
+				vNs := NewVirtualNamespace(virtualName)
+				for _, slot := range slots {
+					vNs.Add(&Namespace{name: slot})
+				}
+				v.namespaces[virtualName] = vNs
+			}
 		}
 		log.Printf("Loaded %d virtual namespaces from %s", len(v.namespaces), dataPath)
 	} else if !os.IsNotExist(err) {
@@ -79,9 +95,9 @@ func NewVirtualNamespaceRegistry(dataPath string) *VirtualNamespaceRegistry {
 	go func() {
 		for range ticker.C {
 			v.mu.RLock()
-			schema := make(map[string][]string)
+			schema := make(map[string]map[string]NamespaceStatus)
 			for name, vNs := range v.namespaces {
-				schema[name] = vNs.Hasher.GetAllSlots()
+				schema[name] = vNs.GetAllNamespacesWithStatus()
 			}
 			v.mu.RUnlock()
 
@@ -113,22 +129,60 @@ func (vr *VirtualNamespaceRegistry) Register(v *VirtualNamespace) {
 	vr.namespaces[v.Name] = v
 }
 
+type NamespaceStatus string
+
+const (
+	NamespaceActive   NamespaceStatus = "active"
+	NamespaceCordoned NamespaceStatus = "cordoned"
+)
+
 type VirtualNamespace struct {
-	Name   string
-	Hasher *ConsistentHash
+	Name       string
+	Ring       *ConsistentHash
+	Namespaces map[string]NamespaceStatus
+	mu         sync.RWMutex
 }
 
 func NewVirtualNamespace(name string) *VirtualNamespace {
 	return &VirtualNamespace{
-		Name:   name,
-		Hasher: NewConsistentHash(50),
+		Name:       name,
+		Ring:       NewConsistentHash(50),
+		Namespaces: make(map[string]NamespaceStatus),
 	}
 }
 
 func (v *VirtualNamespace) Add(namespace *Namespace) {
-	v.Hasher.AddSlot(namespace.name)
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.Namespaces[namespace.name] = NamespaceActive
+	v.Ring.AddSlot(namespace.name)
 }
 
 func (v *VirtualNamespace) Remove(namespace *Namespace) {
-	v.Hasher.RemoveSlot(namespace.name)
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if _, exists := v.Namespaces[namespace.name]; exists {
+		v.Namespaces[namespace.name] = NamespaceCordoned
+	}
+	v.Ring.RemoveSlot(namespace.name)
+}
+
+func (v *VirtualNamespace) GetAllNamespacesWithStatus() map[string]NamespaceStatus {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	result := make(map[string]NamespaceStatus, len(v.Namespaces))
+	for k, val := range v.Namespaces {
+		result[k] = val
+	}
+	return result
+}
+
+func (v *VirtualNamespace) GetAllNamespaces() []string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	var result []string
+	for k := range v.Namespaces {
+		result = append(result, k)
+	}
+	return result
 }

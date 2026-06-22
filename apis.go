@@ -130,11 +130,11 @@ func startAdminServer(port int, registry *VirtualNamespaceRegistry) {
 			return
 		}
 
-		slots := vNs.Hasher.GetAllSlots()
+		namespacesWithStatus := vNs.GetAllNamespacesWithStatus()
 
 		response := map[string]interface{}{
 			"name":                name,
-			"physical_namespaces": slots,
+			"physical_namespaces": namespacesWithStatus,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
