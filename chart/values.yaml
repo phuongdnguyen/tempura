@@ -1,9 +1,9 @@
 replicaCount: 1
 
 image:
-  repository: tempura
+  repository: ghcr.io/phuongdnguyen/tempura
   pullPolicy: IfNotPresent
-  tag: "latest"
+  tag: "sha256:48b9b33ef76319d23b6b564de6b7cfc3e131b6327c98a37b8fdcef26af30fda9"
 
 # Provide an explicit Redis address. If empty, the chart will default to the bundled Bitnami Redis service.
 redisAddr: ""
