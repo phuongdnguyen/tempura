@@ -1,0 +1,19 @@
+replicaCount: 1
+
+image:
+  repository: tempura
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Provide an explicit Redis address. If empty, the chart will default to the bundled Bitnami Redis service.
+redisAddr: ""
+
+service:
+  type: ClusterIP
+  port: 8088
+  adminPort: 8089
+
+redis:
+  auth:
+    enabled: false
+  architecture: standalone

@@ -11,6 +11,6 @@ scrape_configs:
         labels:
           group: 'temporal'
 
-  - job_name: 'tedx'
+  - job_name: 'tempura'
     static_configs:
       - targets: ['host.docker.internal:8089']

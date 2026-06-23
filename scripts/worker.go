@@ -60,7 +60,7 @@ func main() {
 
 	fmt.Println("Starting Temporal Worker...")
 	fmt.Println("Polling proxy at localhost:8088 on namespace 'default' and task queue 'test-task-queue'")
-	
+
 	// Start the worker and block until interrupted
 	err = w.Run(worker.InterruptCh())
 	if err != nil {

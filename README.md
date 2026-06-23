@@ -1,19 +1,16 @@
-# TedX
+# Tempura
 
-TedX is a semantic aware load balancer for Temporal clusters with the goal to achieve active-active mode to unlock higher scaling capability.
-
-> [!CAUTION]
-> This is a POC and not ready for production use. It is intended to be used as a reference implementation for building a production-ready solution.
+Tempura is a semantic aware load balancer for Temporal clusters with the goal to achieve active-active mode to unlock higher scaling capability.
 
 # Usage
 Start dependencies, assuming you are on mac
 ```bash
 docker-compose -f sandbox/docker-compose.yml up -d
 ```
-Run tedx
+Run tempura
 ```bash
 go build 
-./tedx
+./tempura
 ```
 
 Start a worker
