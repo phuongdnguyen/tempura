@@ -16,7 +16,7 @@ func main() {
 	// Start the Admin API on port 8089
 	go startAdminServer(*adminPort, registry)
 
-	proxy, err := NewStickyProxy(*listenAddr, registry)
+	proxy, err := NewStickyProxy(*listenAddr, *redisAddr, registry)
 	if err != nil {
 		log.Fatal("Error creating proxy: ", err)
 	}

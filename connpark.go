@@ -310,6 +310,10 @@ func (cp *ConnPark) pollSingleActivityCluster(ctx context.Context, originalReq *
 }
 
 func extractPayload(bodyBytes []byte) ([]byte, bool, error) {
+	// gRPC payload structure:
+	// 1 byte compressed flag
+	// 4 bytes message length
+	// N bytes protobuf payload
 	if len(bodyBytes) <= 5 {
 		return nil, false, fmt.Errorf("payload too short to be valid gRPC")
 	}
