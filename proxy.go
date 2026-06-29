@@ -27,8 +27,7 @@ type StickyProxy struct {
 	ConnPark *ConnPark
 }
 
-func NewStickyProxy(listenAddr string, registry *VirtualNamespaceRegistry) (*StickyProxy, error) {
-	defaultTargetURLStr := "http://localhost:7233"
+func NewStickyProxy(listenAddr string, redisAddr string, defaultTargetURLStr string, registry *VirtualNamespaceRegistry) (*StickyProxy, error) {
 	defaultTarget, err := url.Parse(defaultTargetURLStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse default target URL: %w", err)
@@ -55,7 +54,7 @@ func NewStickyProxy(listenAddr string, registry *VirtualNamespaceRegistry) (*Sti
 	}
 	proxy.Transport = transport
 
-	mappings := NewMappings("localhost:6379")
+	mappings := NewMappings(redisAddr)
 	resolver := NewResolver(mappings)
 
 	connPark := NewConnPark(resolver, registry, transport)
@@ -66,10 +65,6 @@ func NewStickyProxy(listenAddr string, registry *VirtualNamespaceRegistry) (*Sti
 			// Read the payload from the request body
 			bodyBytes, err := io.ReadAll(r.Body)
 			if err == nil {
-				// gRPC payload structure:
-				// 1 byte compressed flag
-				// 4 bytes message length
-				// N bytes protobuf payload
 				newBodyBytes, err := handleStartWorkflowExecution(r, bodyBytes, resolver, registry)
 				if err != nil {
 					log.Printf("Error processing StartWorkflowExecution: %v\n", err)
@@ -114,6 +109,61 @@ func NewStickyProxy(listenAddr string, registry *VirtualNamespaceRegistry) (*Sti
 			} else {
 				log.Printf("Error reading request body: %v\n", err)
 			}
+		} else if strings.Contains(r.URL.Path, "CancelWorkflowExecution") {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err == nil {
+				newBodyBytes, err := handleCancelWorkflow(r, bodyBytes, resolver, registry)
+				if err != nil {
+					log.Printf("Error processing CanceWorkflow: %v\n", err)
+				} else {
+					bodyBytes = newBodyBytes
+				}
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			}
+		} else if strings.Contains(r.URL.Path, "GetWorkflowExecutionHistory") {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err == nil {
+				newBodyBytes, err := handleGetWorkflowExecutionHistory(r, bodyBytes, resolver, registry)
+				if err != nil {
+					log.Printf("Error processing GetWorkflowExecutionHistory: %v\n", err)
+				} else {
+					bodyBytes = newBodyBytes
+				}
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			}
+		} else if strings.Contains(r.URL.Path, "SignalWorkflowExecution") {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err == nil {
+				newBodyBytes, err := handleSignalWorkflow(r, bodyBytes, resolver, registry)
+				if err != nil {
+					log.Printf("Error processing SignalWorkflow: %v\n", err)
+				} else {
+					bodyBytes = newBodyBytes
+				}
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			}
+		} else if strings.Contains(r.URL.Path, "QueryWorkflow") {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err == nil {
+				newBodyBytes, err := handleQueryWorkflow(r, bodyBytes, resolver, registry)
+				if err != nil {
+					log.Printf("Error processing QueryWorkflow: %v\n", err)
+				} else {
+					bodyBytes = newBodyBytes
+				}
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			}
+		} else if strings.Contains(r.URL.Path, "RespondQueryTaskCompleted") {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err == nil {
+				newBodyBytes, err := handleRespondQueryTaskCompleted(r, bodyBytes, resolver, registry)
+				if err != nil {
+					log.Printf("Error processing RespondQueryTaskCompleted: %v\n", err)
+				} else {
+					bodyBytes = newBodyBytes
+				}
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			}
 		}
 
 		// Forward the request to the target Temporal server
@@ -154,32 +204,29 @@ func handleStartWorkflowExecution(r *http.Request, bodyBytes []byte, resolver *R
 		return nil, err
 	}
 
-	reqStruct := &workflowservice.StartWorkflowExecutionRequest{}
-	if err := proto.Unmarshal(pbPayload, reqStruct); err != nil {
+	req := &workflowservice.StartWorkflowExecutionRequest{}
+	if err := proto.Unmarshal(pbPayload, req); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal StartWorkflowExecutionRequest: %w", err)
 	}
 
-	log.Printf("Resolving workflowID: %s, namespaceID: %s\n", reqStruct.WorkflowId, reqStruct.Namespace)
-
 	payload := &Payload{
-		WorkflowID:       reqStruct.WorkflowId,
-		VirtualNamespace: reqStruct.Namespace,
+		WorkflowID:       req.WorkflowId,
+		VirtualNamespace: req.Namespace,
 	}
 
-	physNs, cacheHit := resolver.Resolve(payload, registry)
-	log.Printf("Resolved virtual namespace '%s' to physical namespace '%s' (Cache hit: %v)\n", reqStruct.Namespace, physNs, cacheHit)
+	physNs, _ := resolver.Resolve(payload, registry)
 
 	ns := parsePhysicalNamespace(physNs)
 
 	// Rewrite the target namespace to the physical namespace we resolved
-	reqStruct.Namespace = ns.name
+	req.Namespace = ns.name
 
 	// Dynamically route this request to the resolved cluster
 	r.URL.Host = ns.cluster.address
 	r.Host = ns.cluster.address
 
 	// Re-marshal the updated protobuf payload
-	newPbPayload, err := proto.Marshal(reqStruct)
+	newPbPayload, err := proto.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal updated StartWorkflowExecutionRequest: %w", err)
 	}
@@ -193,31 +240,28 @@ func handleRespondWorkflowTaskCompleted(r *http.Request, bodyBytes []byte, resol
 		return nil, err
 	}
 
-	reqStruct := &workflowservice.RespondWorkflowTaskCompletedRequest{}
-	if err := proto.Unmarshal(pbPayload, reqStruct); err != nil {
+	req := &workflowservice.RespondWorkflowTaskCompletedRequest{}
+	if err := proto.Unmarshal(pbPayload, req); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal RespondWorkflowTaskCompletedRequest: %w", err)
 	}
 
 	// Extract WorkflowID by parsing the TaskToken
-	workflowID, err := extractWorkflowIDFromTaskToken(reqStruct.TaskToken)
+	workflowID, err := extractWorkflowIDFromTaskToken(req.TaskToken)
 	if err != nil || workflowID == "" {
 		log.Printf("Warning: Failed to extract WorkflowId from TaskToken: %v", err)
 		// Fallback to ResourceId just in case
-		workflowID = reqStruct.ResourceId
+		workflowID = req.ResourceId
 	}
-
-	log.Printf("Resolving RespondWorkflowTaskCompleted workflowID: '%s', namespaceID: '%s'\n", workflowID, reqStruct.Namespace)
 
 	payload := &Payload{
 		WorkflowID:       workflowID,
-		VirtualNamespace: reqStruct.Namespace,
+		VirtualNamespace: req.Namespace,
 	}
 
-	physNs, cacheHit := resolver.Resolve(payload, registry)
-	log.Printf("Resolved virtual namespace '%s' to physical namespace '%s' (Cache hit: %v)\n", reqStruct.Namespace, physNs, cacheHit)
+	physNs, _ := resolver.Resolve(payload, registry)
 
 	// Delete from cache AFTER resolving,
-	for _, command := range reqStruct.Commands {
+	for _, command := range req.Commands {
 		if command.CommandType == enums.COMMAND_TYPE_COMPLETE_WORKFLOW_EXECUTION {
 			log.Printf("completing workflow: %s, removing from routing cache\n", workflowID)
 			resolver.Cache.Delete(workflowID)
@@ -227,14 +271,14 @@ func handleRespondWorkflowTaskCompleted(r *http.Request, bodyBytes []byte, resol
 	ns := parsePhysicalNamespace(physNs)
 
 	// Rewrite the target namespace to the physical namespace we resolved
-	reqStruct.Namespace = ns.name
+	req.Namespace = ns.name
 
 	// Dynamically route this request to the resolved cluster
 	r.URL.Host = ns.cluster.address
 	r.Host = ns.cluster.address
 
 	// Re-marshal the updated protobuf payload
-	newPbPayload, err := proto.Marshal(reqStruct)
+	newPbPayload, err := proto.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal updated RespondWorkflowTaskCompletedRequest: %w", err)
 	}
@@ -292,14 +336,12 @@ func extractWorkflowIDFromTaskToken(token []byte) (string, error) {
 func servePollWorkflowTaskQueue(w http.ResponseWriter, r *http.Request, connPark *ConnPark) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("Error reading request body: %v\n", err)
 		http.Error(w, "Error reading request body", 500)
 		return
 	}
 
 	resp, err := connPark.ExecutePoll(r, bodyBytes)
 	if err != nil {
-		log.Printf("ConnPark ExecutePoll failed: %v", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -313,39 +355,214 @@ func handleRespondActivityTaskCompleted(r *http.Request, bodyBytes []byte, resol
 		return nil, err
 	}
 
-	reqStruct := &workflowservice.RespondActivityTaskCompletedRequest{}
-	if err := proto.Unmarshal(pbPayload, reqStruct); err != nil {
+	req := &workflowservice.RespondActivityTaskCompletedRequest{}
+	if err := proto.Unmarshal(pbPayload, req); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal RespondActivityTaskCompletedRequest: %w", err)
 	}
 
 	// Extract WorkflowID directly from TaskToken
-	workflowID, err := extractWorkflowIDFromTaskToken(reqStruct.TaskToken)
+	workflowID, err := extractWorkflowIDFromTaskToken(req.TaskToken)
 	if err != nil || workflowID == "" {
 		log.Printf("Warning: Failed to extract WorkflowId from Activity TaskToken: %v", err)
-		workflowID = reqStruct.ResourceId
+		workflowID = req.ResourceId
 	}
-
-	log.Printf("Resolving RespondActivityTaskCompleted workflowID: '%s', namespaceID: '%s'\n", workflowID, reqStruct.Namespace)
 
 	payload := &Payload{
 		WorkflowID:       workflowID,
-		VirtualNamespace: reqStruct.Namespace,
+		VirtualNamespace: req.Namespace,
 	}
 
-	physNs, cacheHit := resolver.Resolve(payload, registry)
-	log.Printf("Resolved virtual namespace '%s' to physical namespace '%s' (Cache hit: %v)\n", reqStruct.Namespace, physNs, cacheHit)
+	physNs, _ := resolver.Resolve(payload, registry)
 
 	ns := parsePhysicalNamespace(physNs)
 
 	// Rewrite namespace
-	reqStruct.Namespace = ns.name
+	req.Namespace = ns.name
 
 	r.URL.Host = ns.cluster.address
 	r.Host = ns.cluster.address
 
-	newPbPayload, err := proto.Marshal(reqStruct)
+	newPbPayload, err := proto.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal updated RespondActivityTaskCompletedRequest: %w", err)
+	}
+
+	return encodeGRPCPayload(newPbPayload, r), nil
+}
+
+func handleCancelWorkflow(r *http.Request, bodyBytes []byte, resolver *Resolver, registry *VirtualNamespaceRegistry) ([]byte, error) {
+	pbPayload, _, err := extractPayload(bodyBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &workflowservice.RequestCancelWorkflowExecutionRequest{}
+	if err := proto.Unmarshal(pbPayload, req); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal RespondActivityTaskCompletedRequest: %w", err)
+	}
+	workflowID := req.WorkflowExecution.GetWorkflowId()
+
+	payload := &Payload{
+		WorkflowID:       workflowID,
+		VirtualNamespace: req.Namespace,
+	}
+
+	physNs, _ := resolver.Resolve(payload, registry)
+
+	ns := parsePhysicalNamespace(physNs)
+
+	// Rewrite namespace
+	req.Namespace = ns.name
+
+	r.URL.Host = ns.cluster.address
+	r.Host = ns.cluster.address
+
+	newPbPayload, err := proto.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal updated RespondActivityTaskCompletedRequest: %w", err)
+	}
+
+	return encodeGRPCPayload(newPbPayload, r), nil
+}
+
+func handleSignalWorkflow(r *http.Request, bodyBytes []byte, resolver *Resolver, registry *VirtualNamespaceRegistry) ([]byte, error) {
+	pbPayload, _, err := extractPayload(bodyBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &workflowservice.SignalWorkflowExecutionRequest{}
+	if err := proto.Unmarshal(pbPayload, req); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal SignalWorkflowExecutionRequest: %w", err)
+	}
+	fmt.Printf("Received Signal Workflow Request %+v\n", req)
+	workflowID := req.WorkflowExecution.GetWorkflowId()
+
+	payload := &Payload{
+		WorkflowID:       workflowID,
+		VirtualNamespace: req.Namespace,
+	}
+
+	physNs, _ := resolver.Resolve(payload, registry)
+
+	ns := parsePhysicalNamespace(physNs)
+
+	// Rewrite namespace
+	req.Namespace = ns.name
+
+	r.URL.Host = ns.cluster.address
+	r.Host = ns.cluster.address
+
+	newPbPayload, err := proto.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal updated SignalWorkflowExecutionRequest: %w", err)
+	}
+
+	return encodeGRPCPayload(newPbPayload, r), nil
+}
+
+func handleQueryWorkflow(r *http.Request, bodyBytes []byte, resolver *Resolver, registry *VirtualNamespaceRegistry) ([]byte, error) {
+	pbPayload, _, err := extractPayload(bodyBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &workflowservice.QueryWorkflowRequest{}
+	if err := proto.Unmarshal(pbPayload, req); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal QueryWorkflowRequest: %w", err)
+	}
+	workflowID := req.GetExecution().GetWorkflowId()
+
+	payload := &Payload{
+		WorkflowID:       workflowID,
+		VirtualNamespace: req.Namespace,
+	}
+
+	physNs, _ := resolver.Resolve(payload, registry)
+
+	ns := parsePhysicalNamespace(physNs)
+
+	// Rewrite namespace
+	req.Namespace = ns.name
+
+	r.URL.Host = ns.cluster.address
+	r.Host = ns.cluster.address
+
+	newPbPayload, err := proto.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal updated QueryWorkflowRequest: %w", err)
+	}
+
+	return encodeGRPCPayload(newPbPayload, r), nil
+}
+
+func handleRespondQueryTaskCompleted(r *http.Request, bodyBytes []byte, resolver *Resolver, registry *VirtualNamespaceRegistry) ([]byte, error) {
+	pbPayload, _, err := extractPayload(bodyBytes)
+	if err != nil {
+		return nil, err
+	}
+	req := &workflowservice.RespondQueryTaskCompletedRequest{}
+	if err := proto.Unmarshal(pbPayload, req); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal RespondQueryTaskCompletedRequest: %w", err)
+	}
+	workflowID, err := extractWorkflowIDFromTaskToken(req.TaskToken)
+	if err != nil || workflowID == "" {
+		log.Printf("Warning: Failed to extract WorkflowId from TaskToken: %v", err)
+	}
+
+	payload := &Payload{
+		WorkflowID:       workflowID,
+		VirtualNamespace: req.Namespace,
+	}
+
+	physNs, _ := resolver.Resolve(payload, registry)
+
+	ns := parsePhysicalNamespace(physNs)
+
+	// Rewrite namespace
+	req.Namespace = ns.name
+
+	r.URL.Host = ns.cluster.address
+	r.Host = ns.cluster.address
+
+	newPbPayload, err := proto.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal updated RespondQueryTaskCompletedReqeust: %w", err)
+	}
+
+	return encodeGRPCPayload(newPbPayload, r), nil
+}
+
+func handleGetWorkflowExecutionHistory(r *http.Request, bodyBytes []byte, resolver *Resolver, registry *VirtualNamespaceRegistry) ([]byte, error) {
+	pbPayload, _, err := extractPayload(bodyBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &workflowservice.GetWorkflowExecutionHistoryRequest{}
+	if err := proto.Unmarshal(pbPayload, req); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal GetWorkflowExecutionHistoryRequest: %w", err)
+	}
+	workflowID := req.GetExecution().GetWorkflowId()
+
+	payload := &Payload{
+		WorkflowID:       workflowID,
+		VirtualNamespace: req.Namespace,
+	}
+
+	physNs, _ := resolver.Resolve(payload, registry)
+
+	ns := parsePhysicalNamespace(physNs)
+
+	// Rewrite namespace
+	req.Namespace = ns.name
+
+	r.URL.Host = ns.cluster.address
+	r.Host = ns.cluster.address
+
+	newPbPayload, err := proto.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal updated GetWorkflowExecutionHistoryRequest: %w", err)
 	}
 
 	return encodeGRPCPayload(newPbPayload, r), nil
@@ -354,14 +571,12 @@ func handleRespondActivityTaskCompleted(r *http.Request, bodyBytes []byte, resol
 func servePollActivityTaskQueue(w http.ResponseWriter, r *http.Request, connPark *ConnPark) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("Error reading request body: %v\n", err)
 		http.Error(w, "Error reading request body", 500)
 		return
 	}
 
 	resp, err := connPark.ExecutePollActivity(r, bodyBytes)
 	if err != nil {
-		log.Printf("ConnPark ExecutePollActivity failed: %v", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
