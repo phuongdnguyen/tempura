@@ -38,6 +38,75 @@ Start some workflows
 go run scripts/start_workflows.go
 ```
 
+Run conformance tests
+```bash
+cd conformance-tests
+go test -v .
+```
+
+Deploying to Kubernetes
+```bash
+helm install tempura oci://ghcr.io/phuongdnguyen/charts/tempura --version 0.1.0
+```
+
+# Admin API
+
+Tempura provides an Admin REST API (running on port `8089` by default) to dynamically manage virtual namespaces and map them to physical Temporal clusters.
+
+### 1. Create a Virtual Namespace
+Creates a new logical namespace that SDK clients can target.
+- **URL**: `/namespace/virtual/create`
+- **Method**: `POST`
+- **Payload**:
+  ```json
+  {
+      "name": "my-virtual-namespace"
+  }
+  ```
+
+### 2. Map a Physical Cluster to a Virtual Namespace
+Adds a real backend Temporal cluster/namespace mapping to a virtual namespace.
+- **URL**: `/namespace/physical/add`
+- **Method**: `POST`
+- **Payload**:
+  ```json
+  {
+      "virtual_namespace": "my-virtual-namespace",
+      "physical_namespace": "backend-real-namespace",
+      "cluster_address": "cluster1.example.com:7233"
+  }
+  ```
+
+### 3. Remove a Physical Cluster Mapping
+Removes a backend Temporal cluster mapping from a virtual namespace.
+- **URL**: `/namespace/physical/remove`
+- **Method**: `POST`
+- **Payload**:
+  ```json
+  {
+      "virtual_namespace": "my-virtual-namespace",
+      "physical_namespace": "backend-real-namespace",
+      "cluster_address": "cluster1.example.com:7233"
+  }
+  ```
+
+### 4. Inspect a Virtual Namespace
+Returns all physical namespaces and their status attached to a virtual namespace.
+- **URL**: `/namespace/virtual/get?name=my-virtual-namespace`
+- **Method**: `GET`
+- **Response**:
+  ```json
+  {
+      "name": "my-virtual-namespace",
+      "physical_namespaces": [
+          {
+              "name": "backend-real-namespace|cluster1.example.com:7233",
+              "status": "UP"
+          }
+      ]
+  }
+  ```
+
 # Architecture
 Sticky proxy
 ![Architecture](./docs/images/arc.png)
