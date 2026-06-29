@@ -16,8 +16,9 @@ spec:
     spec:
       containers:
         - name: {{ .Chart.Name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}@{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["./app"]
           args:
             - "-listen-addr=0.0.0.0:{{ .Values.service.port }}"
             - "-admin-port={{ .Values.service.adminPort }}"
